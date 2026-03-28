@@ -2,56 +2,53 @@
 
 ```sh
 bun install
-bun start        # http://localhost:3000 — stable demo pages (clears stale :3000 listeners first)
-bun run start:watch # same page server, but with Bun watch/reload enabled
-bun run site:build # static demo site -> site/
-bun run check    # typecheck + lint
-bun test         # lightweight invariants against the shipped implementation
-bun run accuracy-check         # Chrome browser sweep
-bun run accuracy-check:safari  # Safari browser sweep
-bun run accuracy-check:firefox # Firefox browser sweep
-bun run accuracy-snapshot      # Chrome raw accuracy snapshot -> accuracy/chrome.json
-bun run accuracy-snapshot:safari   # Safari raw accuracy snapshot -> accuracy/safari.json
-bun run accuracy-snapshot:firefox  # Firefox raw accuracy snapshot -> accuracy/firefox.json
-bun run benchmark-check        # Chrome benchmark snapshot (short corpus + long-form corpora)
-bun run corpus-representative  # representative corpus anchor rows -> corpora/representative.json
-bun run corpus-font-matrix --id=ar-risalat-al-ghufran-part-1 --samples=5  # sampled cross-font corpus check
+bun start                    # http://localhost:3000 — stable demo pages
+bun run start:watch          # same page server, but with Bun watch/reload enabled
+bun run site:build           # static demo site -> site/
+bun run check                # typecheck + lint
+bun test                     # small invariant suite
+bun run accuracy-check       # Chrome browser sweep
+bun run accuracy-check:safari
+bun run accuracy-check:firefox
+bun run accuracy-snapshot    # refresh accuracy/chrome.json
+bun run accuracy-snapshot:safari
+bun run accuracy-snapshot:firefox
+bun run benchmark-check      # Chrome benchmark snapshot
+bun run benchmark-check:safari
+bun run pre-wrap-check       # small browser-oracle sweep for { whiteSpace: 'pre-wrap' }
+bun run corpus-representative
 ```
 
-Pages:
-- `/demos/index` — demo index page
-- `/demos/accordion` — expand/collapse sections with Pretext-driven heights
-- `/demos/dynamic-layout` — fixed-height editorial spread with two-column flow, obstacle avoidance, live logo-driven reflow
-- `/demos/bubbles` — bubble shrinkwrap demo
-- `/accuracy` — sweep across fonts, sizes, widths, i18n texts
-- `/benchmark` — performance comparison
-- `/emoji-test` — canvas vs DOM emoji width sweep
-- `/corpus` — long-form corpora + diagnostics (`font=` / `lineHeight=` query params supported)
+Useful pages:
+- `/demos/index`
+- `/demos/accordion`
+- `/demos/bubbles`
+- `/demos/dynamic-layout`
+- `/accuracy`
+- `/benchmark`
+- `/corpus`
 
-## Research
+## Current Sources Of Truth
 
-See [RESEARCH.md](RESEARCH.md) for the full exploration log: every approach we tried, benchmarks, the system-ui font discovery, punctuation accumulation error analysis, emoji width tables, HarfBuzz RTL bug, server-side engine comparison, and what Sebastian already knew.
-
-## Current Statuses
-
-See:
-- [STATUS.md](STATUS.md) for the current compact benchmark snapshot
-- [accuracy/chrome.json](accuracy/chrome.json), [accuracy/safari.json](accuracy/safari.json), and [accuracy/firefox.json](accuracy/firefox.json) for the checked-in raw browser accuracy rows
-- [benchmarks/chrome.json](benchmarks/chrome.json) and [benchmarks/safari.json](benchmarks/safari.json) for the checked-in current benchmark snapshots
-- [corpora/representative.json](corpora/representative.json) for the compact machine-readable corpus anchor rows
-- [pages/benchmark.ts](pages/benchmark.ts) for the live benchmark harness
+Use these for the current picture:
+- [STATUS.md](STATUS.md) — compact browser accuracy + benchmark dashboard
+- [accuracy/chrome.json](accuracy/chrome.json), [accuracy/safari.json](accuracy/safari.json), [accuracy/firefox.json](accuracy/firefox.json) — checked-in raw browser accuracy rows
+- [benchmarks/chrome.json](benchmarks/chrome.json), [benchmarks/safari.json](benchmarks/safari.json) — checked-in benchmark snapshots
+- [corpora/STATUS.md](corpora/STATUS.md) — compact long-form corpus snapshot
+- [corpora/representative.json](corpora/representative.json) — machine-readable corpus anchors
+- [RESEARCH.md](RESEARCH.md) — the exploration log and the durable conclusions behind the current model
 
 ## Deep Profiling
 
-For one-off performance and memory investigations, stay in a real browser first.
+For one-off performance and memory work, start in a real browser.
 
-Preferred workflow:
+Preferred loop:
 
 1. Start the normal page server with `bun start`.
 2. Launch an isolated Chrome with:
    - `--remote-debugging-port=9222`
    - a throwaway `--user-data-dir`
-   - background-throttling disabled if the run is interactive
+   - background throttling disabled if the run is interactive
 3. Connect over Chrome DevTools / CDP.
 4. Use a tiny dedicated repro page before profiling the full benchmark page.
 5. Ask the questions in this order:
@@ -72,43 +69,4 @@ Use the right tool for each question:
 - Retained memory:
   - force GC, take a before heapsnapshot, run the workload, force GC again, take an after heapsnapshot, and diff what survives
 
-For this repo, that distinction matters. A page can allocate heavily without leaking. We now have a concrete example in the rich streaming path: long breakable segments caused real CPU + allocation churn, but essentially no retained post-GC heap growth.
-
-A pure Bun/Node microbenchmark is still useful for quick hypothesis checks, but treat it as the cheap first pass, not the final answer. When the question is "how does Pretext behave in the browser we actually care about?", prefer the browser workflow above.
-
-## Accuracy
-
-Tested across 4 fonts × 8 sizes × 8 widths × 30 i18n texts (7680 tests):
-
-| Browser | Match rate | Tests | Remaining mismatches |
-|---|---|---|---|
-| Chrome | 100.00% | 7680 | None on the current browser sweep |
-| Safari | 100.00% | 7680 | None on the current browser sweep |
-| Firefox | 100.00% | 7680 | None on the current browser sweep |
-
-Tested across 4 fonts (Helvetica Neue, Georgia, Verdana, Courier New) × 8 sizes × 8 widths × 30 i18n texts. See [STATUS.md](STATUS.md) for the compact current snapshot, [corpora/STATUS.md](corpora/STATUS.md) for the long-form corpus canaries, and [RESEARCH.md](RESEARCH.md) for the exploration log.
-
-## i18n
-
-- **Line breaking**: `Intl.Segmenter` with `granularity: 'word'` handles CJK (per-character breaks), Thai, Arabic, and all scripts the browser supports.
-- **Bidi metadata**: the rich `prepareWithSegments()` path can attach simplified UAX #9-style embedding levels for mixed LTR/RTL custom rendering. Line breaking itself does not consume those levels, and pure LTR text still fast-paths with zero extra bidi work.
-- **Shaping**: canvas `measureText()` uses the browser's font engine, so ligatures, kerning, and contextual forms (Arabic connected letters) are handled correctly.
-- **Emoji**: auto-corrected. Chrome/Firefox canvas inflates emoji widths at small font sizes on macOS; the library detects and compensates automatically.
-
-## Known limitations
-
-- **CSS config**: targets a common app-text configuration (`white-space: normal`, `word-break: normal`, `overflow-wrap: break-word`, `line-break: auto`). Source newlines are treated as collapsible whitespace, not explicit `<br>`/paragraph breaks. Other configurations (`break-all`, `keep-all`, `strict`, `loose`, `anywhere`) are untested.
-- **In-word breaks**: because the default target includes `overflow-wrap: break-word`, very narrow widths may break inside words, but only at grapheme boundaries. The engine will not cut through raw UTF-16/code-unit boundaries or split an emoji cluster in half.
-- **`line-height`**: the library does not infer CSS line height. Pass the exact value you render with into `layout()` / `layoutWithLines()`. `line-height: normal` differs across fonts and browsers.
-- **Soft hyphens**: unbroken soft hyphens stay invisible, but if the engine chooses that break, the rich APIs expose a visible trailing `-` in the rendered line text.
-- **`system-ui` font**: canvas and DOM resolve this CSS keyword to different font variants at certain sizes on macOS. Use a named font (Inter, Helvetica, Arial, etc.) for guaranteed accuracy. See [RESEARCH.md](RESEARCH.md#discovery-system-ui-font-resolution-mismatch).
-- **Server-side**: importing the module is now safe in non-DOM runtimes, but actual server-side measurement is still not zero-config. Calling `prepare()` without `OffscreenCanvas` or a DOM canvas path will still need an explicit canvas-backed backend. We keep a HarfBuzz (WASM) backend around for headless probes and research.
-
-## How it works
-
-1. **Text analysis**: normalize collapsible whitespace, segment with `Intl.Segmenter('word')`, merge punctuation, and carry opening punctuation forward so browser break opportunities are modeled more closely.
-2. **CJK splitting + kinsoku**: CJK word segments are re-split into individual graphemes, since CSS allows line breaks between any CJK characters. Kinsoku shori rules keep CJK punctuation (，。「」 etc.) attached to their adjacent characters so they can't be separated across line breaks.
-3. **Measurement + caching**: each final segment is measured via canvas `measureText()` and cached in a per-font segment-metrics cache. Common words across texts share not just widths but lazily-derived segment data such as grapheme widths for breakable words. The cache has no eviction — it grows monotonically per font string. For a typical single-font comment feed this is a few KB; `clearCache()` exists for manual eviction if needed.
-4. **Emoji correction**: canvas `measureText` inflates emoji widths on Chrome/Firefox at font sizes <24px on macOS. Auto-detected by measuring a reference emoji; correction subtracted per emoji grapheme. Safari is unaffected (correction = 0).
-5. **Bidi metadata**: on the rich path, characters can be classified into bidi types and mapped to approximate embedding levels for custom rendering. Pure LTR text skips this entirely, and the line breaker itself does not read those levels.
-6. **Layout** (per resize): walk the cached widths, accumulate per line, break when exceeding `maxWidth`. Trailing whitespace hangs past the edge (CSS behavior). Non-space overflow (words, emoji, punctuation) triggers a line break. Segments wider than `maxWidth` are broken at grapheme boundaries.
+A pure Bun/Node microbenchmark is still useful for cheap hypothesis checks, but it is not the final answer when the question is browser behavior.
